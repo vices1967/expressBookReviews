@@ -5,66 +5,97 @@ const regd_users = express.Router();
 
 let users = [];
 
-const isValid = (username)=>{ //returns boolean
-//write code to check is the username is valid
-let userswithsamename = users.filter((user) => {
-  return user.username === username;
-});
-// Return true if any user with the same username is found, otherwise false
-if (userswithsamename.length > 0) {
-  return true;
-} else {
-  return false;
-}
-}
+const isValid = (username) => {
+    // Check if any user with the same username exists
+    return users.some(user => user.username === username);
+};
 
 const authenticatedUser = (username, password) => {
-  // Filter the users array for any user with the same username and password
-  let validusers = users.filter((user) => {
-      return (user.username === username && user.password === password);
-  });
-  // Return true if any valid user is found, otherwise false
-  if (validusers.length > 0) {
-      return true;
-  } else {
-      return false;
-  }
-}
+    // Check if there is any user with the provided username and password
+    return users.some(user => user.username === username && user.password === password);
+};
 
-//only registered users can login
-regd_users.post("/login", (req,res) => {
-  //Write your code here
-  const username = req.body.username;
-  const password = req.body.password;
+// Login endpoint
+regd_users.post("/login", (req, res) => {
+    const { username, password } = req.body;
 
-  // Check if username or password is missing
-  if (!username || !password) {
-      return res.status(404).json({ message: "Error logging in" });
-  }
+    // Check if username or password is missing
+    if (!username || !password) {
+        return res.status(400).json({ message: "Username or password missing" });
+    }
 
-  // Authenticate user
-  if (authenticatedUser(username, password)) {
-      // Generate JWT access token
-      let accessToken = jwt.sign({
-          data: password
-      }, 'access', { expiresIn: 60 * 60 });
+    // Authenticate user
+    if (authenticatedUser(username, password)) {
+        // Generate JWT access token
+        const accessToken = jwt.sign({ username }, 'access', { expiresIn: '1h' });
 
-      // Store access token and username in session
-      req.session.authorization = {
-          accessToken, username
-      }
-      return res.status(200).send("User successfully logged in");
-  } else {
-      return res.status(208).json({ message: "Invalid Login. Check username and password" });
-  }
-  //return res.status(300).json({message: "Yet to be implemented"});
+        // Store access token and username in session
+        req.session.authorization = { accessToken, username };
+
+        return res.status(200).json({ message: "User successfully logged in", accessToken });
+    } else {
+        return res.status(401).json({ message: "Invalid login credentials" });
+    }
 });
 
-// Add a book review
+// Add or modify a book review
 regd_users.put("/auth/review/:isbn", (req, res) => {
-  //Write your code here
-  return res.status(300).json({message: "Yet to be implemented"});
+  const { isbn } = req.params;
+  const { review } = req.body;
+  const username = req.session.authorization?.username; // Obtener username de la sesión
+
+  if (!username) {
+      return res.status(401).json({ message: "Unauthorized: User not logged in" });
+  }
+
+  // Buscar el libro por su campo ISBN en la base de datos
+  const book = Object.values(books).find(book => book.isbn === isbn);
+
+  if (!book) {
+      return res.status(404).json({ message: "Book not found" });
+  }
+
+  // Verificar si el usuario ya ha dejado una reseña para este libro
+  if (book.reviews && book.reviews[username]) {
+      // Actualizar la reseña existente
+      book.reviews[username] = review;
+      return res.status(200).json({ message: "Review updated successfully" });
+  } else {
+      // Agregar una nueva reseña
+      if (!book.reviews) {
+          book.reviews = {};
+      }
+      book.reviews[username] = review;
+      return res.status(200).json({ message: "Review added successfully" });
+  }
 });
+
+// Endpoint para eliminar una reseña de libro
+regd_users.delete("/auth/review/:isbn", (req, res) => {
+  const { isbn } = req.params;
+  const username = req.session.authorization?.username; // Obtener username de la sesión
+
+  if (!username) {
+      return res.status(401).json({ message: "Unauthorized: User not logged in" });
+  }
+
+  // Buscar el libro por su campo ISBN en la base de datos
+  const book = Object.values(books).find(book => book.isbn === isbn);
+
+  if (!book) {
+      return res.status(404).json({ message: "Book not found" });
+  }
+
+  // Verificar si el usuario ha dejado una reseña para este libro
+  if (!book.reviews || !book.reviews[username]) {
+      return res.status(404).json({ message: "Review not found" });
+  }
+
+  // Eliminar la reseña del usuario
+  delete book.reviews[username];
+  return res.status(200).json({ message: "Review deleted successfully" });
+});
+
 
 module.exports.authenticated = regd_users;
 module.exports.isValid = isValid;
